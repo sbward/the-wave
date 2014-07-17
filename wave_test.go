@@ -1,7 +1,6 @@
 package wave
 
 import (
-	"log"
 	"strconv"
 	"testing"
 )
@@ -22,15 +21,14 @@ func FakeEndpoints() []string {
 
 func TestStringWave(t *testing.T) {
 	endpoints := FakeEndpoints()
-	done := make(chan struct{})
 	numWorkers := 2
 
-	err := (&StringWave{
+	done, err := (&StringWave{
 		Strings:      endpoints,
 		Concurrency:  numWorkers,
 		WaitInterval: 1,
 		Plugins: []StringPlugin{
-			StringPlugin(&TestPlugin{t, done}),
+			StringPlugin(&TestPlugin{t}),
 		},
 	}).Start()
 
@@ -43,7 +41,6 @@ func TestStringWave(t *testing.T) {
 
 type TestPlugin struct {
 	*testing.T
-	Done chan struct{}
 }
 
 func (t *TestPlugin) WaveStart(w Wave) {
@@ -57,8 +54,6 @@ func (t *TestPlugin) WaveInit(w Wave) {
 }
 func (t *TestPlugin) WaveEnd(w Wave) {
 	t.T.Log("Plugin: Finalizing wave")
-	t.Done <- struct{}{}
-	log.Printf("Plugin: Sent Signal")
 }
 func (t *TestPlugin) Session(w Wave, target string) {
 	t.T.Log("Plugin: Target: " + target)

@@ -13,17 +13,18 @@ import (
 // for each string, then repeats the process for the whole pool of strings.
 // Afterward it will pause before repeating, unless it's disabled.
 type StringWave struct {
-	Strings      []string // List of strings (typically server hostnames).
-	Concurrency  int      // Number of strings to process simultaneously.
-	WaitInterval int      // Seconds to wait between consecutive waves.
-	Repeat       bool     // Set to true to repeat the wave continuously.
-	Name         string   // A label used for log messages.
+	Strings      []string      // List of strings (typically server hostnames).
+	Concurrency  int           // Number of strings to process simultaneously.
+	WaitInterval time.Duration // Seconds to wait between consecutive waves.
+	Repeat       bool          // Set to true to repeat the wave continuously.
+	Name         string        // A label used for log messages.
 
 	// Plugins to execute against each string.
 	Plugins []StringPlugin
 
 	initialized    bool
 	running        bool
+	waveDone       chan struct{}
 	workerControls []chan bool
 	workerCtrlLock sync.RWMutex
 }
@@ -36,7 +37,7 @@ func (w *StringWave) SetConcurrency(c int) error {
 	return nil
 }
 
-func (w *StringWave) SetWaitInterval(c int) error {
+func (w *StringWave) SetWaitInterval(c time.Duration) error {
 	if c < 0 {
 		return errors.New("Unable to set wave wait interval below 0")
 	}
@@ -65,9 +66,9 @@ func (w *StringWave) Run() error {
 	return nil
 }
 
-func (w *StringWave) Start() error {
+func (w *StringWave) Start() (<-chan struct{}, error) {
 	if err := w.validate(); err != nil {
-		return err
+		return nil, err
 	}
 	if !w.initialized {
 		log.Println(w.Name, "Initializing Wave")
@@ -75,10 +76,11 @@ func (w *StringWave) Start() error {
 			// Random name label.
 			w.Name = "{{Wave " + strconv.Itoa(rand.Int()) + "}}"
 		}
+		w.waveDone = make(chan struct{})
 		go func() {
 			first := true
 			// Repeat the wave if configured to do so.
-			for ; first || w.Repeat; time.Sleep(time.Duration(w.WaitInterval) * time.Second) {
+			for ; first || w.Repeat; time.Sleep(w.WaitInterval) {
 				first = false
 				log.Println(w.Name, "Launching")
 				queue := make(chan string, w.Concurrency*3)
@@ -107,6 +109,7 @@ func (w *StringWave) Start() error {
 				for _, plugin := range w.Plugins {
 					plugin.WaveEnd(Wave(w))
 				}
+				w.waveDone <- struct{}{}
 			}
 		}()
 		for _, plugin := range w.Plugins {
@@ -123,7 +126,7 @@ func (w *StringWave) Start() error {
 		plugin.WaveStart(Wave(w))
 	}
 	w.running = true
-	return nil
+	return (<-chan struct{})(w.waveDone), nil
 }
 
 func (w *StringWave) Pause() error {

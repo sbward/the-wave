@@ -5,6 +5,7 @@ import (
 	"log"
 	"runtime"
 	"strconv"
+	"time"
 )
 
 func init() {
@@ -19,12 +20,14 @@ func init() {
 
 type Wave interface {
 	SetConcurrency(int) error
-	SetWaitInterval(int) error
+	SetWaitInterval(time.Duration) error
 	SetRepeat(bool)
 
-	// Start or resume the wave.
+	// Start or resume the wave. Provides a channel which signals whenever a
+	// full wave is completed. Note: multiple calls to Start() will return
+	// the same channel every time.
 	// Returns an error if already running or if the configuration is invalid.
-	Start() error
+	Start() (<-chan struct{}, error)
 
 	// Pause the wave, allowing active sessions to finish.
 	// Returns an error if already paused.
