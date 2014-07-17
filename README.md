@@ -8,9 +8,31 @@ Do this: | With this:
 
 ## Usage
 ```go
-import "github.com/sbward/the-wave"
+package main
+
+import (
+	"github.com/sbward/the-wave"
+	"time"
+)
 
 func main() {
-	go wave.New(servers, concurrency, plugins).Run()
+	w := &wave.StringWave{
+		Strings: []string{
+			"server-1.internal",
+			"server-2.internal",
+			// ... Lots of hostnames ...
+			"server-87453.internal",
+		},
+		Concurrency:  10,
+		WaitInterval: time.Duration(300) * time.Second,
+		Plugins: []StringPlugin{
+			StringPlugin(&MyPlugin{conf}),
+		},
+	}
+	done, err := w.Start()
+	if err != nil {
+		panic(err)
+	}
+	<-done
 }
 ```
