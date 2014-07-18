@@ -1,4 +1,4 @@
-The Wave
+The Wave [![Build Status](https://drone.io/github.com/sbward/the-wave/status.png)](https://drone.io/github.com/sbward/the-wave/latest) [![Coverage Status](https://coveralls.io/repos/sbward/the-wave/badge.png?branch=master)](https://coveralls.io/r/sbward/the-wave?branch=master)
 ========
 Poll a cluster of N servers in waves of M &lt; N size.  Uses a plugin system.
 
