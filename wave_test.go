@@ -6,11 +6,42 @@ import (
 	"time"
 )
 
+/*
+	TestPlugin helper
+*/
+
+type TestPlugin struct {
+	*testing.T
+	PauseOnStart bool
+	PauseInvoked chan struct{} // Signals after Pause() is called by this plugin.
+}
+
+func (p *TestPlugin) Start(w *Wave) {
+	p.T.Log("Plugin: Starting a wave")
+	if p.PauseOnStart {
+		if err := w.Pause(); err != nil {
+			p.T.Error("Pause not expected to return an error, but received:", err)
+		}
+		p.PauseInvoked <- struct{}{}
+	}
+}
+
+func (p *TestPlugin) Init(w *Wave)    { p.T.Log("Plugin: Initialized wave") }
+func (p *TestPlugin) Pause(w *Wave)   { p.T.Log("Plugin: Pausing wave") }
+func (p *TestPlugin) Unpause(w *Wave) { p.T.Log("Plugin: Unpausing wave") }
+func (p *TestPlugin) End(w *Wave)     { p.T.Log("Plugin: Finished a wave") }
+
+func (p *TestPlugin) Session(w *Wave, target string) {
+	p.T.Log("Plugin: Target: " + target)
+}
+
 const (
 	startPort = 3000 // Port to start on
 	numPorts  = 10   // Number of ports to listen on
 )
 
+// FakeEndpoints creates a list of fake network port names.
+// It is configured with the `startPort` and `numPorts` constants.
 func FakeEndpoints() []string {
 	var endpoints []string
 	for i := 0; i < numPorts; i++ {
@@ -44,8 +75,10 @@ func TestNormalWave(t *testing.T) {
 	w.SetName("Test")
 	w.SetRepeat(false)
 
-	testPlugin := Plugin(&TestPlugin{t})
-	w.SetPlugins(testPlugin)
+	testPlugin := TestPlugin{
+		T: t,
+	}
+	w.SetPlugins(Plugin(&testPlugin))
 
 	// Getter assertions.
 	if r := w.Repeat(); r != false {
@@ -68,22 +101,33 @@ func TestNormalWave(t *testing.T) {
 	<-done
 }
 
-type TestPlugin struct {
-	*testing.T
-}
+func TestPausingWave(t *testing.T) {
+	w := New(FakeEndpoints()...)
+	w.SetConcurrency(2)
 
-func (t *TestPlugin) Start(w *Wave) {
-	t.T.Log("Plugin: Starting wave")
-}
-func (t *TestPlugin) Pause(w *Wave) {
-	t.T.Log("Plugin: Pausing wave")
-}
-func (t *TestPlugin) Init(w *Wave) {
-	t.T.Log("Plugin: Initializing wave")
-}
-func (t *TestPlugin) End(w *Wave) {
-	t.T.Log("Plugin: Finalizing wave")
-}
-func (t *TestPlugin) Session(w *Wave, target string) {
-	t.T.Log("Plugin: Target: " + target)
+	testPlugin := TestPlugin{
+		T:            t,
+		PauseOnStart: true,
+		PauseInvoked: make(chan struct{}, 1),
+	}
+	w.SetPlugins(Plugin(&testPlugin))
+
+	done, err := w.Start()
+	if err != nil {
+		t.Error("Expected no errors, but received:", err)
+		return
+	}
+
+	<-testPlugin.PauseInvoked
+
+	if !w.IsPaused() {
+		t.Error("Expected wave to report it was paused, but it didn't")
+		return
+	}
+
+	if err := w.Unpause(); err != nil {
+		t.Error("Unexpected error:", err)
+		return
+	}
+	<-done
 }
