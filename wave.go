@@ -50,6 +50,7 @@ type Wave struct {
 	waveDoneLock   sync.RWMutex    // Guards access to waveDone slice.
 	workerControls []chan bool     // Send true to start worker, false to stop.
 	waveMasterCtrl chan bool       // Signals the master routine to stop/go.
+	isPaused       chan chan bool  // Request/Response channel for querying pause state
 
 	logger *log.Logger // Place to send log messages. Set to nil for no logs.
 }
@@ -112,6 +113,7 @@ func (w *Wave) Start() (<-chan struct{}, error) {
 		w.running = true
 		w.initialized = true
 		w.waveMasterCtrl = make(chan bool)
+		w.isPaused = make(chan chan bool)
 	}
 	done := make(chan struct{})
 	w.waveDoneLock.Lock()
@@ -195,6 +197,8 @@ func (w *Wave) Start() (<-chan struct{}, error) {
 							ctrl <- run
 						}
 						w.running = run
+					case isPaused := <-w.isPaused:
+						isPaused <- !w.running
 					case <-wait:
 						w.waveDoneLock.RLock()
 						for _, done := range w.waveDone {
@@ -251,7 +255,9 @@ func (w *Wave) Unpause() error {
 }
 
 func (w *Wave) IsPaused() bool {
-	return !w.running
+	resp := make(chan bool)
+	w.isPaused <- resp
+	return <-resp
 }
 
 func (w *Wave) worker(queue chan string, ctrl chan bool, wg *sync.WaitGroup) {
