@@ -14,9 +14,6 @@ import (
 func init() {
 	cpus := runtime.NumCPU()
 	procs := *flag.Int("wave.procs", cpus, "Number of processors to use")
-	if procs < 1 || procs > cpus {
-		panic("Value for -wave.procs must be between 1 and " + strconv.Itoa(cpus))
-	}
 	runtime.GOMAXPROCS(procs)
 	log.Println("GOMAXPROCS = " + strconv.Itoa(procs))
 }
@@ -51,33 +48,10 @@ type Wave struct {
 	Setters
 */
 
-func (w *Wave) SetConcurrency(c int) error {
-	if c < 1 {
-		return errors.New("Unable to set wave concurrency below 1")
-	}
-	w.concurrency = c
-	return nil
-}
-
-func (w *Wave) SetWaitInterval(t time.Duration) error {
-	if t < 0 {
-		return errors.New("Unable to set wave wait interval below 0")
-	}
-	w.waitInterval = t
-	return nil
-}
-
-func (w *Wave) SetRepeat(r bool) {
-	w.repeat = r
-}
-
-func (w *Wave) SetName(n string) error {
-	if n == "" {
-		return errors.New("Name cannot be an empty string")
-	}
-	w.name = n
-	return nil
-}
+func (w *Wave) SetConcurrency(c int)            { w.concurrency = c }
+func (w *Wave) SetWaitInterval(t time.Duration) { w.waitInterval = t }
+func (w *Wave) SetRepeat(r bool)                { w.repeat = r }
+func (w *Wave) SetName(n string)                { w.name = n }
 
 func (w *Wave) SetPlugins(ps ...Plugin) {
 	w.plugins = []Plugin{}
@@ -109,24 +83,19 @@ func (w *Wave) Plugins() []Plugin {
 	Implementation of Wave interface
 */
 
-// Validate properties in case they were set internally and incorrectly.
-func (w *Wave) validate() error {
-	if err := w.SetConcurrency(w.Concurrency()); err != nil {
-		return err
-	}
-	if err := w.SetWaitInterval(w.WaitInterval()); err != nil {
-		return err
-	}
-	return nil
-}
-
 // Start or resume the wave. Provides a channel which signals whenever a
 // full wave is completed. All channels created this way will receive a
 // signal via fan-out messaging.
 // Returns an error if already running or if the configuration is invalid.
 func (w *Wave) Start() (<-chan struct{}, error) {
-	if err := w.validate(); err != nil {
-		return nil, err
+	if w.concurrency < 1 {
+		return nil, errors.New("Concurrency cannot be below 1")
+	}
+	if w.waitInterval < 0 {
+		return nil, errors.New("Wait interval cannot be below 0")
+	}
+	if w.name == "" {
+		return nil, errors.New("Name cannot be an empty string")
 	}
 	if !w.initialized {
 		if w.name == "" {

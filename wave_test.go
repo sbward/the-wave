@@ -22,13 +22,47 @@ func FakeEndpoints() []string {
 
 func TestNormalWave(t *testing.T) {
 	w := New(FakeEndpoints()...)
+
+	// Cover some error handlers and setters.
+	w.SetConcurrency(0)
+	if _, err := w.Start(); err == nil {
+		t.Error("Concurrency accepted 0")
+		return
+	}
 	w.SetConcurrency(2)
+	w.SetWaitInterval(time.Duration(-1))
+	if _, err := w.Start(); err == nil {
+		t.Error("WaitInterval accepted -1")
+		return
+	}
 	w.SetWaitInterval(time.Second)
-	w.SetPlugins(Plugin(&TestPlugin{t}))
+	w.SetName("")
+	if _, err := w.Start(); err == nil {
+		t.Error("Name accepted empty string")
+		return
+	}
+	w.SetName("Test")
+	w.SetRepeat(false)
+
+	testPlugin := Plugin(&TestPlugin{t})
+	w.SetPlugins(testPlugin)
+
+	// Getter assertions.
+	if r := w.Repeat(); r != false {
+		t.Error("Repeat value was unexpected:", r)
+		return
+	}
+	if n := w.Name(); n != "Test" {
+		t.Error("Name value was unexpected:", n)
+		return
+	}
+	if l := len(w.Plugins()); l != 1 {
+		t.Error("Plugins length was unexpected:", l)
+	}
 
 	done, err := w.Start()
 	if err != nil {
-		t.Error(err)
+		t.Error("Expected no errors, but received:", err)
 		return
 	}
 	<-done
