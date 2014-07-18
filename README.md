@@ -16,23 +16,24 @@ import (
 )
 
 func main() {
-	w := &wave.StringWave{
-		Strings: []string{
-			"server-1.internal",
-			"server-2.internal",
-			// ... Lots of hostnames ...
-			"server-87453.internal",
-		},
-		Concurrency:  10,
-		WaitInterval: time.Duration(300) * time.Second,
-		Plugins: []StringPlugin{
-			StringPlugin(&MyPlugin{conf}),
-		},
-	}
+	w := wave.New(
+		"server-1.internal",
+		"server-2.internal",
+		// ... Lots of hostnames ...
+		"server-87453.internal",
+	)
+	w.SetConcurrency(10)
+	w.SetWaitInterval(time.Duration(300) * time.Second)
+
+	ping := wave.PingPlugin{}
+	w.AddPlugin(wave.Plugin(&ping))
+
 	done, err := w.Start()
 	if err != nil {
 		panic(err)
 	}
 	<-done
+
+	fmt.Println(ping.Report())
 }
 ```
