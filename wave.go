@@ -136,26 +136,8 @@ func (w *Wave) Start() (<-chan struct{}, error) {
 
 			w.workerControls = make([]chan bool, w.concurrency)
 
-			// Create the workers.
-			var preempt, run bool
-			select {
-			case cRun, ok := <-w.waveMasterCtrl:
-				if !ok {
-					log.Println(w.name, "Killed during startup")
-					return
-				}
-				log.Println("Received preemptive master signal:", cRun)
-				preempt = true
-				run = cRun
-				w.running = run
-			default:
-				// No signal received
-			}
 			for i := 0; i < w.concurrency; i++ {
 				newCtrl := make(chan bool, 1)
-				if preempt {
-					newCtrl <- run
-				}
 				w.workerControls[i] = newCtrl
 				wg.Add(1)
 				go w.worker(queue, newCtrl, wg)
