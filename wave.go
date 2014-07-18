@@ -264,10 +264,10 @@ func (w *Wave) worker(queue chan string, ctrl chan bool, wg *sync.WaitGroup) {
 			log.Println(w.name, "Worker quitting before work started; control channel closed")
 			// TODO Report state to master
 		}
-		if !running {
-			log.Println(w.name, "Worker entering idle mode; preemptive pause command received")
+		if running {
+			log.Println(w.name, "Worker entering work mode; preemptive start command received")
 			// TODO Report state to master
-			goto idle
+			goto work
 		}
 	default:
 		// No command waiting, continue as usual...
