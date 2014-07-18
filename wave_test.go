@@ -3,6 +3,7 @@ package wave
 import (
 	"strconv"
 	"testing"
+	"time"
 )
 
 const (
@@ -19,23 +20,17 @@ func FakeEndpoints() []string {
 	return endpoints
 }
 
-func TestStringWave(t *testing.T) {
-	endpoints := FakeEndpoints()
-	numWorkers := 2
+func TestNormalWave(t *testing.T) {
+	w := New(FakeEndpoints()...)
+	w.SetConcurrency(2)
+	w.SetWaitInterval(time.Second)
+	w.SetPlugins(Plugin(&TestPlugin{t}))
 
-	done, err := (&StringWave{
-		Strings:      endpoints,
-		Concurrency:  numWorkers,
-		WaitInterval: 1,
-		Plugins: []StringPlugin{
-			StringPlugin(&TestPlugin{t}),
-		},
-	}).Start()
-
+	done, err := w.Start()
 	if err != nil {
 		t.Error(err)
+		return
 	}
-
 	<-done
 }
 
@@ -43,18 +38,18 @@ type TestPlugin struct {
 	*testing.T
 }
 
-func (t *TestPlugin) WaveStart(w Wave) {
+func (t *TestPlugin) Start(w *Wave) {
 	t.T.Log("Plugin: Starting wave")
 }
-func (t *TestPlugin) WavePause(w Wave) {
+func (t *TestPlugin) Pause(w *Wave) {
 	t.T.Log("Plugin: Pausing wave")
 }
-func (t *TestPlugin) WaveInit(w Wave) {
+func (t *TestPlugin) Init(w *Wave) {
 	t.T.Log("Plugin: Initializing wave")
 }
-func (t *TestPlugin) WaveEnd(w Wave) {
+func (t *TestPlugin) End(w *Wave) {
 	t.T.Log("Plugin: Finalizing wave")
 }
-func (t *TestPlugin) Session(w Wave, target string) {
+func (t *TestPlugin) Session(w *Wave, target string) {
 	t.T.Log("Plugin: Target: " + target)
 }
