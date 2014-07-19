@@ -63,9 +63,10 @@ func Continuous(concurrency int, vals []string, callback func(string)) *handle {
 }
 
 type handle struct {
-	stop, done bool
-	stopChan   chan struct{}
-	doneChans  []chan struct{}
+	stop, done    bool
+	stopChan      chan struct{}
+	doneChans     []chan struct{}
+	doneChansLock sync.RWMutex
 }
 
 func newHandle() *handle {
@@ -90,7 +91,9 @@ func (h *handle) Stop() {
 // callbacks have finished from calling Stop().
 func (h *handle) Done() <-chan struct{} {
 	doneChan := make(chan struct{}, 1)
+	h.doneChansLock.Lock()
 	h.doneChans = append(h.doneChans, doneChan)
+	h.doneChansLock.Unlock()
 	if h.done {
 		doneChan <- struct{}{}
 	}
@@ -99,7 +102,12 @@ func (h *handle) Done() <-chan struct{} {
 
 func (h *handle) sendDone() {
 	h.done = true
+	h.doneChansLock.RLock()
 	for _, done := range h.doneChans {
-		done <- struct{}{}
+		select {
+		case done <- struct{}{}:
+		default:
+		}
 	}
+	h.doneChansLock.RUnlock()
 }

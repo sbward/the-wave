@@ -42,6 +42,7 @@ func TestContinuous(t *testing.T) {
 	})
 
 	count := 0
+	d := h.Done()
 	for _ = range tick {
 		if count++; count == 100 {
 			t.Log("Ticks received:", count)
@@ -49,5 +50,5 @@ func TestContinuous(t *testing.T) {
 			break
 		}
 	}
-	<-h.Done()
+	<-d
 }
