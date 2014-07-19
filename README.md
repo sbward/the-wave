@@ -7,6 +7,7 @@ Do this: | With this:
 <img src="http://angel.elte.hu/wave/fig/demo/simulationMovieLarge.gif" width="350px" label="http://angel.elte.hu/wave/index.cgi?m=models"> | <img src="http://cdn.slashgear.com/wp-content/uploads/2012/10/google-datacenter-tech-13-580x386.jpg" width="350px" label="http://www.slashgear.com/google-data-center-hd-photos-hit-where-the-internet-lives-gallery-17252451/">
 
 ## Usage
+### Single Wave
 ```go
 package main
 
@@ -16,24 +17,44 @@ import (
 )
 
 func main() {
-	w := wave.New(
+	hosts := []string{
 		"server-1.internal",
 		"server-2.internal",
 		// ... Lots of hostnames ...
 		"server-87453.internal",
-	)
-	w.SetConcurrency(10)
-	w.SetWaitInterval(time.Duration(300) * time.Second)
-
-	ping := wave.PingPlugin{}
-	w.AddPlugin(wave.Plugin(&ping))
-
-	done, err := w.Start()
-	if err != nil {
-		panic(err)
 	}
-	<-done
 
-	fmt.Println(ping.Report())
+	h := wave.Launch(10, hosts, func(host string) {
+		// Gather metrics
+	})
+
+	<-h.Done() // Block until the wave finishes
+}
+```
+### Continuous Wave
+```go
+package main
+
+import (
+	"github.com/sbward/the-wave"
+	"time"
+)
+
+func main() {
+	hosts := []string{
+		"server-1.internal",
+		"server-2.internal",
+		// ... Lots of hostnames ...
+		"server-87453.internal",
+	}
+
+	h := wave.Continuous(10, hosts, func(host string) {
+		// Gather metrics
+	})
+
+	time.Sleep(time.Minute) // Run continuously for 1 minute
+
+	h.Stop()   // Signal to stop the wave
+	<-h.Done() // Block until the wave stops (active callbacks will finish)
 }
 ```

@@ -1,303 +1,105 @@
 package wave
 
-import (
-	"errors"
-	"flag"
-	"log"
-	"math/rand"
-	"runtime"
-	"strconv"
-	"sync"
-	"time"
-)
+import "sync"
 
-func init() {
-	cpus := runtime.NumCPU()
-	procs := *flag.Int("wave.procs", cpus, "Number of processors to use")
-	runtime.GOMAXPROCS(procs)
-	log.Println("GOMAXPROCS = " + strconv.Itoa(procs))
+func Launch(concurrency int, vals []string, callback func(string)) *handle {
+	h := newHandle()
+	launchWithHandle(concurrency, vals, callback, h)
+	return h
 }
 
-const (
-	defaultConcurrency  = 10
-	defaultWaitInterval = 0
-)
-
-// Create a new Wave. Default implementation is the Wave.
-func New(vals ...string) Wave {
-	return Wave{
-		strings:      vals,
-		concurrency:  defaultConcurrency,
-		waitInterval: defaultWaitInterval,
-		name:         "{{ Wave " + strconv.Itoa(rand.Intn(1<<16)) + " }}",
-	}
-}
-
-// Wave concurrently selects some strings, executes a set of Plugins
-// for each string, then continues the process for the whole pool of strings.
-// Afterward it will pause before repeating, unless it's disabled via SetRepeat.
-type Wave struct {
-	strings      []string      // List of strings (typically server hostnames).
-	concurrency  int           // Number of strings to process simultaneously.
-	waitInterval time.Duration // Seconds to wait between consecutive waves.
-	repeat       bool          // Set to true to repeat the wave continuously.
-	name         string        // A label used for log messages.
-	plugins      []Plugin      // Plugins to execute against each string.
-
-	initialized    bool            // True if the wave goroutine was created.
-	running        bool            // True if the wave is executing right now.
-	waveDone       []chan struct{} // Publishes a signal at the end of waves.
-	waveDoneLock   sync.RWMutex    // Guards access to waveDone slice.
-	workerControls []chan bool     // Send true to start worker, false to stop.
-	waveMasterCtrl chan bool       // Signals the master routine to stop/go.
-	isPaused       chan chan bool  // Request/Response channel for querying pause state
-
-	logger *log.Logger // Place to send log messages. Set to nil for no logs.
-}
-
-/*
-	Setters
-*/
-
-func (w *Wave) SetConcurrency(c int)            { w.concurrency = c }
-func (w *Wave) SetWaitInterval(t time.Duration) { w.waitInterval = t }
-func (w *Wave) SetRepeat(r bool)                { w.repeat = r }
-func (w *Wave) SetName(n string)                { w.name = n }
-
-func (w *Wave) SetPlugins(ps ...Plugin) {
-	w.plugins = []Plugin{}
-	w.AddPlugins(ps...)
-}
-
-func (w *Wave) AddPlugins(ps ...Plugin) {
-	w.plugins = append(w.plugins, ps...)
-}
-
-/*
-	Getters
-*/
-
-func (w *Wave) Concurrency() int            { return w.concurrency }
-func (w *Wave) WaitInterval() time.Duration { return w.waitInterval }
-func (w *Wave) Repeat() bool                { return w.repeat }
-func (w *Wave) Name() string                { return w.name }
-
-func (w *Wave) Plugins() []Plugin {
-	bps := []Plugin{}
-	for _, sp := range w.plugins {
-		bps = append(bps, sp.(Plugin))
-	}
-	return bps
-}
-
-/*
-	Implementation of Wave interface
-*/
-
-// Start or resume the wave. Provides a channel which signals whenever a
-// full wave is completed. All channels created this way will receive a
-// signal via fan-out messaging.
-// Returns an error if already running or if the configuration is invalid.
-func (w *Wave) Start() (<-chan struct{}, error) {
-	if w.concurrency < 1 {
-		return nil, errors.New("Concurrency cannot be below 1")
-	}
-	if w.waitInterval < 0 {
-		return nil, errors.New("Wait interval cannot be below 0")
-	}
-	if w.name == "" {
-		return nil, errors.New("Name cannot be an empty string")
-	}
-	if !w.initialized {
-		w.waveDone = []chan struct{}{}
-		w.running = true
-		w.initialized = true
-		w.waveMasterCtrl = make(chan bool)
-		w.isPaused = make(chan chan bool)
-	}
-	done := make(chan struct{})
-	w.waveDoneLock.Lock()
-	w.waveDone = append(w.waveDone, done)
-	w.waveDoneLock.Unlock()
-
+func launchWithHandle(concurrency int, vals []string, callback func(string), h *handle) {
+	valChan := make(chan string, 10)
 	go func() {
-		// Signal: Init
-		log.Println(w.name, "Init")
-		for _, plugin := range w.plugins {
-			plugin.Init(w)
+		for _, val := range vals {
+			valChan <- val
 		}
-
-		first := true
-		// Repeat the wave if configured to do so.
-		for ; first || w.repeat; time.Sleep(w.waitInterval) {
-			first = false
-			queue := make(chan string, w.concurrency*3)
-			wg := &sync.WaitGroup{}
-
-			w.workerControls = make([]chan bool, w.concurrency)
-
-			for i := 0; i < w.concurrency; i++ {
-				newCtrl := make(chan bool, 1)
-				w.workerControls[i] = newCtrl
-				wg.Add(1)
-				go w.worker(queue, newCtrl, wg)
-			}
-
-			// Feed all of the strings into the queue.
-			go func() {
-				for _, target := range w.strings {
-					log.Println(w.name, "Sending", target)
-					queue <- target
-				}
-				close(queue)
-			}()
-
-			// Convert waitgroup signal into a chan signal
-			wait := make(chan struct{})
-			go func() {
-				wg.Wait()
-				wait <- struct{}{}
-			}()
-
-			// Wave master goroutine
-			// Wait for signals or for work to finish
-			go func() {
-			master:
-				for {
-					select {
-					case run, ok := <-w.waveMasterCtrl:
-						if !ok {
-							log.Println(w.name, "Killed during wave")
-							for _, ctrl := range w.workerControls {
-								close(ctrl)
-							}
-							// KILLED event?
-							// Done signal?
-						}
-						log.Println("Received master signal:", run)
-						for _, ctrl := range w.workerControls {
-							ctrl <- run
-						}
-						w.running = run
-					case isPaused := <-w.isPaused:
-						isPaused <- !w.running
-					case <-wait:
-						w.waveDoneLock.RLock()
-						for _, done := range w.waveDone {
-							done <- struct{}{}
-						}
-						w.waveDoneLock.RUnlock()
-						// Signal: End
-						log.Println(w.name, "End")
-						for _, plugin := range w.plugins {
-							plugin.End(w)
-						}
-						break master
-					}
-				}
-			}()
-
-			w.waveMasterCtrl <- true
-
-			// Signal: Start
-			log.Println(w.name, "Start")
-			for _, plugin := range w.plugins {
-				plugin.Start(w)
-			}
-		}
+		close(valChan)
 	}()
-
-	return (<-chan struct{})(done), nil
+	wg := sync.WaitGroup{}
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			for {
+				select {
+				case _, ok := <-h.stopChan:
+					if !ok {
+						return
+					}
+				default:
+				}
+				select {
+				case val, ok := <-valChan:
+					if !ok {
+						wg.Done()
+						return
+					}
+					callback(val)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	h.sendDone()
 }
 
-// Pause the wave, allowing active sessions to finish.
-// Returns an error if already paused.
-func (w *Wave) Pause() error {
-	w.waveMasterCtrl <- false
-
-	// Signal: Pause
-	log.Println(w.name, "Pause")
-	for _, plugin := range w.plugins {
-		plugin.Pause(w)
-	}
-
-	return nil
+func Continuous(concurrency int, vals []string, callback func(string)) *handle {
+	h := newHandle()
+	go func() {
+	loop:
+		for {
+			select {
+			case _, ok := <-h.stopChan:
+				if !ok {
+					break loop
+				}
+			default:
+				launchWithHandle(concurrency, vals, callback, h)
+			}
+		}
+		h.sendDone()
+	}()
+	return h
 }
 
-func (w *Wave) Unpause() error {
-	w.waveMasterCtrl <- true
-
-	// Signal: Unpause
-	log.Println(w.name, "Unpause")
-	for _, plugin := range w.plugins {
-		plugin.Unpause(w)
-	}
-
-	return nil
+type handle struct {
+	stop, done bool
+	stopChan   chan struct{}
+	doneChans  []chan struct{}
 }
 
-func (w *Wave) IsPaused() bool {
-	resp := make(chan bool)
-	w.isPaused <- resp
-	return <-resp
+func newHandle() *handle {
+	return &handle{
+		stopChan:  make(chan struct{}),
+		doneChans: make([]chan struct{}, 0),
+	}
 }
 
-func (w *Wave) worker(queue chan string, ctrl chan bool, wg *sync.WaitGroup) {
-	defer wg.Done()
-	log.Println(w.name, "Worker launched")
-	select {
-	case running, ok := <-ctrl:
-		// There was a command waiting in the control channel
-		if !ok {
-			log.Println(w.name, "Worker quitting before work started; control channel closed")
-			// TODO Report state to master
-		}
-		if running {
-			log.Println(w.name, "Worker entering work mode; preemptive start command received")
-			// TODO Report state to master
-			goto work
-		}
-	default:
-		// No command waiting, continue as usual...
-		// TODO Report state to master
+// Stop allows running callbacks to finish while preventing the wave from
+// continuing. When all callbacks return, the "Done" event will be triggered.
+func (h *handle) Stop() {
+	if !h.stop {
+		close(h.stopChan)
+		h.stop = true
 	}
-idle:
-	for {
-		select {
-		case running, ok := <-ctrl:
-			if !ok {
-				log.Println(w.name, "Worker quitting; control channel closed")
-				return // Control channel closed; quit.
-			}
-			if running {
-				log.Println(w.name, "Worker entering work mode")
-				// TODO Report state to master
-				goto work // Change state to working.
-			}
-		}
+}
+
+// Done returns a channel that will strobe when the wave completes, or after
+// callbacks have finished from calling Stop().
+// For continuous waves, the channel will strobe after each wave, and after
+// callbacks have finished from calling Stop().
+func (h *handle) Done() <-chan struct{} {
+	doneChan := make(chan struct{}, 1)
+	h.doneChans = append(h.doneChans, doneChan)
+	if h.done {
+		doneChan <- struct{}{}
 	}
-work:
-	for {
-		select {
-		case target, ok := <-queue:
-			if !ok {
-				log.Println(w.name, "Worker quitting; queue exhausted")
-				return // Work queue closed; quit.
-			}
-			for _, plugin := range w.plugins {
-				log.Println(w.name, "Worker processing:", target)
-				plugin.Session(w, target)
-			}
-		case running, ok := <-ctrl:
-			if !ok {
-				log.Println(w.name, "Worker quitting; control channel closed")
-				return // Control channel closed; quit.
-			}
-			if !running {
-				log.Println(w.name, "Worker entering idle mode")
-				// TODO Report state to master
-				goto idle // Change state to idling.
-			}
-		}
+	return (<-chan struct{})(doneChan)
+}
+
+func (h *handle) sendDone() {
+	h.done = true
+	for _, done := range h.doneChans {
+		done <- struct{}{}
 	}
 }
