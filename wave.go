@@ -31,16 +31,12 @@ func doTheWave(concurrency int, vals []string, callback func(string), h *handle)
 			defer wg.Done()
 			for {
 				select {
-				case _, ok := <-h.interruptChan:
-					if !ok {
-						return
-					}
+				case <-h.interruptChan:
+					return
 				default:
 					select {
-					case _, ok := <-h.interruptChan:
-						if !ok {
-							return
-						}
+					case <-h.interruptChan:
+						return
 					case val, ok := <-valChan:
 						if !ok {
 							return
@@ -66,19 +62,21 @@ func Continuous(concurrency int, vals []string, callback func(string)) *handle {
 	h := newHandle()
 	go func() {
 		<-h.startChan
+		first := true
 	loop:
 		for {
 			select {
-			case _, ok := <-h.interruptChan:
-				if !ok {
-					break loop
+			case <-h.interruptChan:
+				break loop
+			case <-h.finishChan:
+				if first {
+					doTheWave(concurrency, vals, callback, h)
+					first = false
 				}
-			case _, ok := <-h.finishChan:
-				if !ok {
-					break loop
-				}
+				break loop
 			default:
 				doTheWave(concurrency, vals, callback, h)
+				first = false
 			}
 		}
 		close(h.stopChan)
