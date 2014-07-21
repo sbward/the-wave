@@ -67,5 +67,6 @@ func TestContinuous(t *testing.T) {
 		}
 	}()
 
-	w.Finish() // Blocks until the wave stops for some reason; all callbacks will finish first.
+	w.Start()
+	w.Wait() // Interrupt will kick in later
 }
