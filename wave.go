@@ -1,16 +1,57 @@
+// Package wave implements a concurrent worker pool that can be used to easily
+// communicate with a large amount of remote hosts. For example, if you have
+// 500 servers, you can sweep over them while keeping at most 20 connections
+// open during the sweep.
 package wave
 
 import (
 	"sync"
 )
 
-// Once prepares a wave that will only execute one time after Start is called
-// on the returned handle.
+// Once prepares a wave that will only execute one time. Call Start, Wait, or
+// Finish on the returned handle to start the wave.
+// Concurrency can be tuned by specifying the number of workers to launch.
+// Behavior is configured by providing a callback that is passed one of the
+// strings in the vals slice. For remote monitoring, this would probably be a
+// hostname.
 func Once(concurrency int, vals []string, callback func(string)) *handle {
 	h := newHandle()
 	go func() {
 		<-h.startChan
 		doTheWave(concurrency, vals, callback, h)
+		close(h.stopChan)
+	}()
+	return h
+}
+
+// Continuous prepares a wave that will automatically repeat unless stopped
+// by a call to Interrupt or Finish on the returned handle. Call Start, Wait, or
+// Finish on the returned handle to start the wave.
+// Concurrency can be tuned by specifying the number of workers to launch.
+// Behavior is configured by providing a callback that is passed one of the
+// strings in the vals slice. For remote monitoring, this would probably be a
+// hostname.
+func Continuous(concurrency int, vals []string, callback func(string)) *handle {
+	h := newHandle()
+	go func() {
+		<-h.startChan
+		first := true
+	loop:
+		for {
+			select {
+			case <-h.interruptChan:
+				break loop
+			case <-h.finishChan:
+				if first {
+					doTheWave(concurrency, vals, callback, h)
+					first = false
+				}
+				break loop
+			default:
+				doTheWave(concurrency, vals, callback, h)
+				first = false
+			}
+		}
 		close(h.stopChan)
 	}()
 	return h
@@ -47,35 +88,6 @@ func doTheWave(concurrency int, vals []string, callback func(string), h *handle)
 	h.trigger(h.eachFuncs)
 }
 
-// Continuous prepares a wave that will repeat indefinitely unless interrupted
-// by one of the available event triggers. Start must be called on the returned
-// handle to begin the wave.
-func Continuous(concurrency int, vals []string, callback func(string)) *handle {
-	h := newHandle()
-	go func() {
-		<-h.startChan
-		first := true
-	loop:
-		for {
-			select {
-			case <-h.interruptChan:
-				break loop
-			case <-h.finishChan:
-				if first {
-					doTheWave(concurrency, vals, callback, h)
-					first = false
-				}
-				break loop
-			default:
-				doTheWave(concurrency, vals, callback, h)
-				first = false
-			}
-		}
-		close(h.stopChan)
-	}()
-	return h
-}
-
 type handle struct {
 	start, interrupt, finish sync.Once
 
@@ -110,9 +122,7 @@ func (h *handle) trigger(fs []func()) {
 	wg.Wait()
 }
 
-// Start begins the wave. It must be called for the wave to proceed.
-// For continuous waves, the first call to Start is all that is needed. The wave
-// will loop continuously after that.
+// Start begins the wave.
 func (h *handle) Start() {
 	h.start.Do(func() {
 		close(h.startChan)
@@ -120,7 +130,7 @@ func (h *handle) Start() {
 }
 
 // Interrupt allows running callbacks to finish while preventing the wave from
-// continuing. It will block until all callbacks finish.
+// continuing. It will block until all processing and callbacks have finished.
 func (h *handle) Interrupt() {
 	h.interrupt.Do(func() {
 		close(h.interruptChan)
@@ -128,11 +138,10 @@ func (h *handle) Interrupt() {
 	h.Wait()
 }
 
-// Finish will block until the current wave is completed, then no further waves
-// will be started.
-// For convenience, Finish starts the wave if it hasn't started yet.
-// Note: if Interrupt is called, Finish will unblock whenever the wave stops,
-// whether or not it truly finished an entire wave.  TODO return boolean
+// Finish will block until the current wave is completed or interrupted.
+// After that, no further waves will be started.
+// For convenience, Finish also starts the wave if it hasn't started yet. In
+// this scenario, the wave will only execute once.
 func (h *handle) Finish() {
 	h.Start()
 	h.finish.Do(func() {
@@ -141,21 +150,23 @@ func (h *handle) Finish() {
 	h.Wait()
 }
 
-// Wait blocks until the wave signals a Stop.
+// Wait blocks until the wave has stopped.
+// For convenience, Wait also starts the wave if it hasn't started yet.
 func (h *handle) Wait() {
 	<-h.stopChan
 }
 
-// OnStop registers a function to be called when the wave has stopped for any
-// reason.
+// OnStop registers a function to be called after the wave has stopped.
+// Can be called multiple times to register multiple callbacks.
 func (h *handle) OnStop(f func()) {
 	h.funcsLock.Lock()
 	h.stopFuncs = append(h.stopFuncs, f)
 	h.funcsLock.Unlock()
 }
 
-// AfterEach returns a channel that will send after each full wave has completed.
-// It will not send unless the whole set of values has been processed.
+// AfterEach registers a function to be called after each full wave has completed.
+// It will not be triggered after an interrupt.
+// Can be called multiple times to register multiple callbacks.
 func (h *handle) AfterEach(f func()) {
 	h.funcsLock.Lock()
 	h.eachFuncs = append(h.eachFuncs, f)

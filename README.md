@@ -25,7 +25,7 @@ func main() {
 	}
 
 	h := wave.Once(10, hosts, func(host string) {
-		// Gather metrics from host
+		// Gather metrics from host.
 	})
 
 	h.Finish() // Starts the wave and blocks until it finishes.
@@ -35,10 +35,7 @@ func main() {
 ```go
 package main
 
-import (
-	"github.com/sbward/the-wave"
-	"time"
-)
+import "github.com/sbward/the-wave"
 
 func main() {
 	hosts := []string{
@@ -49,15 +46,19 @@ func main() {
 	}
 
 	h := wave.Continuous(10, hosts, func(host string) {
-		// Gather metrics
+		// Gather metrics from host.
 	})
 
 	h.AfterEach(func(){
+		// Pause for 15 seconds between waves.
 		time.Sleep(time.Duration(15) * time.Second)
 	})
 
 	h.Start()
+
+	// Run continuously for 5 mins.
 	time.Sleep(time.Duration(5) * time.Minute)
-	h.Finish() // Complete the current wave then stop.
+	
+	h.Finish()
 }
 ```
