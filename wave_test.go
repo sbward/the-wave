@@ -19,7 +19,7 @@ func FakeEndpoints() []string {
 	return endpoints
 }
 
-func TestLaunch(t *testing.T) {
+func TestOnce(t *testing.T) {
 	hosts := FakeEndpoints()
 	count := 0
 
@@ -33,12 +33,10 @@ func TestLaunch(t *testing.T) {
 		}
 	})
 
-	// Start implied by Finish (checks if start happened, if not, it starts).
-	// Note: all callbacks must be called and done before Finish unblocks.
 	w.Finish()
 }
 
-func TestContinuous(t *testing.T) {
+func TestContinuousInterrupt(t *testing.T) {
 	tick := make(chan struct{})
 	waves := 10
 
@@ -69,4 +67,34 @@ func TestContinuous(t *testing.T) {
 
 	w.Start()
 	w.Wait() // Interrupt will kick in later
+}
+
+func TestContinuousOnceFinish(t *testing.T) {
+	tick := make(chan struct{})
+
+	w := Continuous(10, FakeEndpoints(), func(host string) {
+		tick <- struct{}{}
+	})
+
+	count := 0
+	countWaves := 0
+
+	w.AfterEach(func() {
+		countWaves++
+	})
+	w.OnStop(func() {
+		t.Log("Waves counted:", count)
+	})
+
+	go func() {
+		for {
+			<-tick
+			if count++; count == numPorts {
+				t.Log("Ticks received:", count)
+				break
+			}
+		}
+	}()
+
+	w.Finish()
 }
