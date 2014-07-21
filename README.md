@@ -1,5 +1,5 @@
-The Wave [![Build Status](https://drone.io/github.com/sbward/the-wave/status.png)](https://drone.io/github.com/sbward/the-wave/latest) [![Coverage Status](https://coveralls.io/repos/sbward/the-wave/badge.png?branch=master)](https://coveralls.io/r/sbward/the-wave?branch=master)
-========
+# The Wave [![Build Status](https://drone.io/github.com/sbward/the-wave/status.png)](https://drone.io/github.com/sbward/the-wave/latest) [![Coverage Status](https://coveralls.io/repos/sbward/the-wave/badge.png?branch=master)](https://coveralls.io/r/sbward/the-wave?branch=master)
+
 Poll a cluster of N servers in waves of M &lt; N size.  Uses a plugin system.
 
 Do this: | With this:
@@ -24,11 +24,11 @@ func main() {
 		"server-87453.internal",
 	}
 
-	h := wave.Launch(10, hosts, func(host string) {
-		// Gather metrics
+	h := wave.Once(10, hosts, func(host string) {
+		// Gather metrics from host
 	})
 
-	<-h.Done() // Block until the wave finishes
+	h.Finish() // Starts the wave and blocks until it finishes.
 }
 ```
 ### Continuous Wave
@@ -52,9 +52,12 @@ func main() {
 		// Gather metrics
 	})
 
-	time.Sleep(time.Minute) // Run continuously for 1 minute
+	h.AfterEach(func(){
+		time.Sleep(time.Duration(15) * time.Second)
+	})
 
-	h.Stop()   // Signal to stop the wave
-	<-h.Done() // Block until the wave stops (active callbacks will finish)
+	h.Start()
+	time.Sleep(time.Duration(5) * time.Minute)
+	h.Finish() // Complete the current wave then stop.
 }
 ```
