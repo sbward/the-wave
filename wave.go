@@ -14,7 +14,7 @@ import (
 // Behavior is configured by providing a callback that is passed one of the
 // strings in the vals slice. For remote monitoring, this would probably be a
 // hostname.
-func Once(concurrency int, vals []string, callback func(string)) *handle {
+func Once(concurrency int, vals []string, callback func(string)) *Handle {
 	h := newHandle()
 	go func() {
 		<-h.startChan
@@ -31,7 +31,7 @@ func Once(concurrency int, vals []string, callback func(string)) *handle {
 // Behavior is configured by providing a callback that is passed one of the
 // strings in the vals slice. For remote monitoring, this would probably be a
 // hostname.
-func Continuous(concurrency int, vals []string, callback func(string)) *handle {
+func Continuous(concurrency int, vals []string, callback func(string)) *Handle {
 	h := newHandle()
 	go func() {
 		<-h.startChan
@@ -57,7 +57,7 @@ func Continuous(concurrency int, vals []string, callback func(string)) *handle {
 	return h
 }
 
-func doTheWave(concurrency int, vals []string, callback func(string), h *handle) {
+func doTheWave(concurrency int, vals []string, callback func(string), h *Handle) {
 	valChan := make(chan string, 10)
 	go func() {
 		for _, val := range vals {
@@ -88,7 +88,8 @@ func doTheWave(concurrency int, vals []string, callback func(string), h *handle)
 	h.trigger(h.eachFuncs)
 }
 
-type handle struct {
+// Handle is used to configure and control a wave.
+type Handle struct {
 	start, interrupt, finish sync.Once
 
 	startChan     chan struct{} // Close to request start
@@ -100,8 +101,8 @@ type handle struct {
 	funcsLock     sync.RWMutex // Guards all []func()
 }
 
-func newHandle() *handle {
-	return &handle{
+func newHandle() *Handle {
+	return &Handle{
 		startChan:     make(chan struct{}),
 		interruptChan: make(chan struct{}),
 		finishChan:    make(chan struct{}),
@@ -111,7 +112,7 @@ func newHandle() *handle {
 	}
 }
 
-func (h *handle) trigger(fs []func()) {
+func (h *Handle) trigger(fs []func()) {
 	wg := sync.WaitGroup{}
 	h.funcsLock.RLock()
 	for _, f := range fs {
@@ -123,7 +124,7 @@ func (h *handle) trigger(fs []func()) {
 }
 
 // Start begins the wave.
-func (h *handle) Start() {
+func (h *Handle) Start() {
 	h.start.Do(func() {
 		close(h.startChan)
 	})
@@ -131,7 +132,7 @@ func (h *handle) Start() {
 
 // Interrupt allows running callbacks to finish while preventing the wave from
 // continuing. It will block until all processing and callbacks have finished.
-func (h *handle) Interrupt() {
+func (h *Handle) Interrupt() {
 	h.interrupt.Do(func() {
 		close(h.interruptChan)
 	})
@@ -142,7 +143,7 @@ func (h *handle) Interrupt() {
 // After that, no further waves will be started.
 // For convenience, Finish also starts the wave if it hasn't started yet. In
 // this scenario, the wave will only execute once.
-func (h *handle) Finish() {
+func (h *Handle) Finish() {
 	h.Start()
 	h.finish.Do(func() {
 		close(h.finishChan)
@@ -152,13 +153,13 @@ func (h *handle) Finish() {
 
 // Wait blocks until the wave has stopped.
 // For convenience, Wait also starts the wave if it hasn't started yet.
-func (h *handle) Wait() {
+func (h *Handle) Wait() {
 	<-h.stopChan
 }
 
 // OnStop registers a function to be called after the wave has stopped.
 // Can be called multiple times to register multiple callbacks.
-func (h *handle) OnStop(f func()) {
+func (h *Handle) OnStop(f func()) {
 	h.funcsLock.Lock()
 	h.stopFuncs = append(h.stopFuncs, f)
 	h.funcsLock.Unlock()
@@ -167,7 +168,7 @@ func (h *handle) OnStop(f func()) {
 // AfterEach registers a function to be called after each full wave has completed.
 // It will not be triggered after an interrupt.
 // Can be called multiple times to register multiple callbacks.
-func (h *handle) AfterEach(f func()) {
+func (h *Handle) AfterEach(f func()) {
 	h.funcsLock.Lock()
 	h.eachFuncs = append(h.eachFuncs, f)
 	h.funcsLock.Unlock()

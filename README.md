@@ -1,6 +1,6 @@
 # The Wave [![Build Status](https://drone.io/github.com/sbward/the-wave/status.png)](https://drone.io/github.com/sbward/the-wave/latest) [![Coverage Status](https://coveralls.io/repos/sbward/the-wave/badge.png?branch=master)](https://coveralls.io/r/sbward/the-wave?branch=master)
 
-Poll a cluster of N servers in waves of M &lt; N size.  Uses a plugin system.
+Package wave implements a concurrent worker pool that can be used to easily communicate with a large amount of remote hosts.
 
 Do this: | With this:
 --- | ---
@@ -35,7 +35,10 @@ func main() {
 ```go
 package main
 
-import "github.com/sbward/the-wave"
+import (
+	"github.com/sbward/the-wave"
+	"log"
+)
 
 func main() {
 	hosts := []string{
@@ -49,16 +52,20 @@ func main() {
 		// Gather metrics from host.
 	})
 
-	h.AfterEach(func(){
+	h.AfterEach(func() {
 		// Pause for 15 seconds between waves.
 		time.Sleep(time.Duration(15) * time.Second)
+	})
+
+	h.OnStop(func() {
+		log.Println("Monitoring has stopped")
 	})
 
 	h.Start()
 
 	// Run continuously for 5 mins.
 	time.Sleep(time.Duration(5) * time.Minute)
-	
+
 	h.Finish()
 }
 ```
