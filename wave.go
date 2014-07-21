@@ -34,15 +34,11 @@ func doTheWave(concurrency int, vals []string, callback func(string), h *handle)
 				case <-h.interruptChan:
 					return
 				default:
-					select {
-					case <-h.interruptChan:
+					val, ok := <-valChan
+					if !ok {
 						return
-					case val, ok := <-valChan:
-						if !ok {
-							return
-						}
-						callback(val)
 					}
+					callback(val)
 				}
 			}
 		}()
