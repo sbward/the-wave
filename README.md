@@ -2,6 +2,8 @@
 
 Package wave implements a concurrent worker pool that can be used to easily communicate with a large amount of remote hosts.
 
+[GoDoc API Documentation](http://godoc.org/gopkg.in/sbward/the-wave.v1)
+
 Do this: | With this:
 --- | ---
 <img src="http://angel.elte.hu/wave/fig/demo/simulationMovieLarge.gif" width="350px" label="http://angel.elte.hu/wave/index.cgi?m=models"> | <img src="http://cdn.slashgear.com/wp-content/uploads/2012/10/google-datacenter-tech-13-580x386.jpg" width="350px" label="http://www.slashgear.com/google-data-center-hd-photos-hit-where-the-internet-lives-gallery-17252451/">
@@ -11,10 +13,7 @@ Do this: | With this:
 ```go
 package main
 
-import (
-	"github.com/sbward/the-wave"
-	"time"
-)
+import "gopkg.in/sbward/the-wave.v1"
 
 func main() {
 	hosts := []string{
@@ -36,7 +35,7 @@ func main() {
 package main
 
 import (
-	"github.com/sbward/the-wave"
+	"gopkg.in/sbward/the-wave.v1"
 	"log"
 )
 
