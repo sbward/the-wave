@@ -48,11 +48,7 @@ func doTheWave(concurrency int, vals []string, callback func(string), h *handle)
 		}()
 	}
 	wg.Wait()
-	if _, ok := <-valChan; ok {
-		h.trigger(h.interruptFuncs)
-	} else {
-		h.trigger(h.eachFuncs)
-	}
+	h.trigger(h.eachFuncs)
 }
 
 // Continuous prepares a wave that will repeat indefinitely unless interrupted
@@ -87,25 +83,23 @@ func Continuous(concurrency int, vals []string, callback func(string)) *handle {
 type handle struct {
 	start, interrupt, finish sync.Once
 
-	startChan      chan struct{} // Close to request start
-	interruptChan  chan struct{} // Close to request interrupt
-	finishChan     chan struct{} // Close to request finish
-	stopChan       chan struct{} // Close when stopped
-	stopFuncs      []func()
-	interruptFuncs []func()
-	eachFuncs      []func()
-	funcsLock      sync.RWMutex // Guards all []func()
+	startChan     chan struct{} // Close to request start
+	interruptChan chan struct{} // Close to request interrupt
+	finishChan    chan struct{} // Close to request finish
+	stopChan      chan struct{} // Close when stopped
+	stopFuncs     []func()
+	eachFuncs     []func()
+	funcsLock     sync.RWMutex // Guards all []func()
 }
 
 func newHandle() *handle {
 	return &handle{
-		startChan:      make(chan struct{}),
-		interruptChan:  make(chan struct{}),
-		finishChan:     make(chan struct{}),
-		stopChan:       make(chan struct{}),
-		stopFuncs:      []func(){},
-		interruptFuncs: []func(){},
-		eachFuncs:      []func(){},
+		startChan:     make(chan struct{}),
+		interruptChan: make(chan struct{}),
+		finishChan:    make(chan struct{}),
+		stopChan:      make(chan struct{}),
+		stopFuncs:     []func(){},
+		eachFuncs:     []func(){},
 	}
 }
 
@@ -161,14 +155,6 @@ func (h *handle) Wait() {
 func (h *handle) OnStop(f func()) {
 	h.funcsLock.Lock()
 	h.stopFuncs = append(h.stopFuncs, f)
-	h.funcsLock.Unlock()
-}
-
-// OnInterrupt registers a function to be called if the wave is interrupted.
-// The callback will be invoked after processing has finished.
-func (h *handle) OnInterrupt(f func()) {
-	h.funcsLock.Lock()
-	h.interruptFuncs = append(h.interruptFuncs, f)
 	h.funcsLock.Unlock()
 }
 
